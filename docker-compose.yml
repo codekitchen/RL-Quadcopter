@@ -1,0 +1,8 @@
+version: '2'
+services:
+  master:
+    build: .
+    volumes:
+      - .:/root/src/RL-Quadcopter/
+    ports:
+      - 11311:11311
