@@ -4,6 +4,7 @@ import numpy as np
 from gym import spaces
 from geometry_msgs.msg import Vector3, Point, Quaternion, Pose, Twist, Wrench
 from quad_controller_rl.tasks.base_task import BaseTask
+from quad_controller_rl.tasks.temporal_space import TemporalState
 
 class Hover(BaseTask):
     """Simple task where the goal is to lift off the ground and reach a target height."""
@@ -13,9 +14,8 @@ class Hover(BaseTask):
         cube_size = 300.0  # env is cube_size x cube_size x cube_size
         space_min = np.array([0, - cube_size / 2, - cube_size / 2,       0.0, -1.0, -1.0, -1.0, -1.0])
         space_max = np.array([500,  cube_size / 2,   cube_size / 2, cube_size, 1.0,  1.0,  1.0,  1.0])
-        self.observation_space = spaces.Box(
-            np.stack([space_min, space_min, space_min]),
-            np.stack([space_max, space_max, space_max]))
+        self.state = TemporalState(space_min, space_max)
+        self.observation_space = self.state.observation_space
         #print("Takeoff(): observation_space = {}".format(self.observation_space))  # [debug]
 
         # Action space: <force_x, .._y, .._z, torque_x, .._y, .._z>
@@ -31,13 +31,14 @@ class Hover(BaseTask):
         self.target_z = 10.0  # target height (z position) to hover at
         self.hovertime = 0
         self.last_timestamp = 0
-        self.step = 0
-        self.state = np.zeros(self.observation_space.shape)
-        self.last_force = 0.0
         self.z_oob = 40.0
-        self.xy_oob = 30.0
+        self.xy_oob = 80.0
+        self.max_height = 0.0
 
     def reset(self):
+        self.state.reset()
+        self.hovertime = 0
+        self.max_height = 0.0
         # Nothing to reset; just return initial condition
         return Pose(
                 position=Point(0.0, 0.0, np.random.normal(0.5, 0.1)),  # drop off from a slight random height
@@ -48,17 +49,16 @@ class Hover(BaseTask):
             )
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
-        self.step += 1
         # Prepare state vector (pose only; ignore angular_velocity, linear_acceleration)
         cur_state = np.array([
                 self.target_z,
                 pose.position.x, pose.position.y, pose.position.z,
                 pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
-        self.state = np.roll(self.state, 1, axis=0)
-        self.state[0] = cur_state
+        self.state.update(cur_state)
 
         # Compute reward / penalty and check if this episode is complete
         done = False
+        self.max_height = max(self.max_height, pose.position.z)
         zdist = abs(self.target_z - pose.position.z)
         # reward = 5 - min(zdist, 40.0)  # reward = zero for matching target z, -ve as you go farther, upto -40
         # hovering = zdist < 0.7
@@ -90,18 +90,19 @@ class Hover(BaseTask):
         elif pose.position.z > self.z_oob or distance_from_origin > self.xy_oob:
             reward -= 1
             done = True
+        elif self.max_height < 0.6 and timestamp > 3.0:
+            reward -= 1
+            done = True
 
         # Take one RL step, passing in current state and reward, and obtain action
         # Note: The reward passed in here is the result of past action(s)
-        action = self.agent.step(self.state, reward, done)  # note: action = <force; torque> vector
+        action = self.agent.step(self.state.state, reward, done)  # note: action = <force; torque> vector
 
         self.last_timestamp = timestamp
-        self.last_force = 0.0
 
         # Convert to proper force command (a Wrench object) and return it
         if action is not None:
             action = np.clip(action.flatten(), self.action_space.low, self.action_space.high)  # flatten, clamp to action space limits
-            self.last_force = action[0] + action[1] + action[2]
             return Wrench(
                     force=Vector3(action[0], action[1], action[2]),
                     torque=Vector3(action[3], action[4], action[5])

@@ -29,8 +29,8 @@ class DDPGAgent(BaseAgent):
         self.action_scale = (self.task.action_space.high - self.task.action_space.low) / 2.0
         self.action_offset = np.zeros(self.action_shape)
         # scale the z force
-        # self.action_offset[2] = 20.0
-        self.action_scale[2] = 1.0
+        self.action_offset[2] = 20.0
+        self.action_scale[2] = 5.0
 
         # self.action_scale *= [1.0, 1.0, 1.0, 0.1, 0.1, 0.1]
         # remove the torque actions
@@ -38,17 +38,17 @@ class DDPGAgent(BaseAgent):
         self.action_scale = self.action_scale[0:3]
         self.action_offset = self.action_offset[0:3]
         # z only
-        # self.action_shape = 1
-        # self.action_scale = [5.0]
-        # self.action_offset = [20.0]
+        self.action_shape = 1
+        self.action_scale = [25.0]
+        self.action_offset = [0.0]
 
         # hyperparams
         self.gamma = 0.99
         self.tau = 0.001
         self.actor_lr =  0.0001
         self.critic_lr = 0.001
-        self.batch_size = 128
-        self.memory_size = 100000
+        self.batch_size = 64
+        self.memory_size = 1000000
 
         task = rospy.get_param('task')
         self.state_dir = "/home/robond/catkin_ws/src/ddpg_state/{}/{}".format(task, self.name)
@@ -79,6 +79,8 @@ class DDPGAgent(BaseAgent):
             tf.summary.scalar('global_step', self._step)
             with tf.variable_scope("network"):
                 self.network = self._build_actor_critic()
+                tf.summary.histogram('action', self.network.raw_action)
+                tf.summary.histogram('value', self.network.raw_value)
             with tf.variable_scope("target_network"):
                 self.target_network = self._build_actor_critic()
                 tvs = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network/")
@@ -94,18 +96,43 @@ class DDPGAgent(BaseAgent):
                 update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope="network/")
                 with tf.variable_scope("critic"):
                     self.critic_y = tf.placeholder(tf.float32, shape=[self.batch_size], name="y")
+                    tf.summary.histogram('ys', self.critic_y)
                     mse = tf.reduce_mean(tf.squared_difference(self.network.value, self.critic_y), name="mse")
                     tf.summary.scalar('loss', mse)
                     critic_vars = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="network/critic/")
                     with tf.control_dependencies(update_ops):
-                        self.critic_train = tf.train.AdamOptimizer(self.critic_lr).minimize(mse, global_step=self._step, var_list=critic_vars)
+                        opt = tf.train.AdamOptimizer(self.critic_lr)
+                        self.critic_train = minimize_with_clipping(opt, mse, critic_vars, step=self._step, stop_gradients=[self.network.state, self.network.action])
                 with tf.variable_scope("actor"):
-                    critic_grad = tf.gradients(self.network.value, self.network.action)[0]
-                    loss = tf.reduce_mean(critic_grad * self.network.action)
-                    tf.summary.scalar('loss', loss)
+                    # critic_grad = tf.gradients(self.network.value, self.network.action)[0]
                     actor_vars = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="network/actor/")
+                    # grads = tf.gradients(self.network.action, actor_vars, grad_ys=-critic_grad)
+                    loss = tf.reduce_mean(-self.network.value)
+                    # loss = tf.reduce_mean(-critic_grad * self.network.action)
+                    tf.summary.scalar('loss', loss)
                     with tf.control_dependencies(update_ops):
-                        self.actor_train = tf.train.AdamOptimizer(self.actor_lr).minimize(loss, var_list=actor_vars)
+                        opt = tf.train.AdamOptimizer(self.actor_lr)
+                        self.actor_train = minimize_with_clipping(opt, loss, actor_vars)
+            with tf.variable_scope('stats'):
+                self.score_placeholder = tf.placeholder(
+                    tf.float32, shape=[], name='score_input')
+                score_1 = tf.Variable(0., trainable=False, name='score_1')
+                tf.summary.scalar('score_1', score_1)
+                score_10 = tf.Variable(0., trainable=False, name='score_10')
+                tf.summary.scalar('score_10', score_10)
+                score_100 = tf.Variable(
+                    0., trainable=False, name='score_100')
+                tf.summary.scalar('score_100', score_100)
+
+                self.set_scores = tf.group(
+                    tf.assign(score_1, self.score_placeholder),
+                    tf.assign(
+                        score_10,
+                        score_10 + (self.score_placeholder / 10.0) - (score_10 / 10.0)),
+                    tf.assign(
+                        score_100,
+                        score_100 + (self.score_placeholder / 100.0) - (score_100 / 100.0)),
+                )
 
             self.memory = Memory(self.memory_size, self.state_shape, (self.action_shape,))
             self.noise = OUNoise(self.action_shape)
@@ -128,13 +155,12 @@ class DDPGAgent(BaseAgent):
     
     def _scale_action(self, action):
         action = action * self.action_scale + self.action_offset
-        action = np.pad(action, (0, 6 - len(action)), 'constant')
-        if action[2] > 0:
-            action[2] = 21.0 + action[2] * 4
-        else:
-            action[2] = 21.0 + action[2] * 40
+        action = np.pad(action, (2, 3), 'constant')
+        # if action[2] > 0:
+        #     action[2] = 21.0 + action[2] * 4
+        # else:
+        #     action[2] = 21.0 + action[2] * 40
         return action
-        # return np.array([0, 0, action[0], 0, 0, 0])
 
     def step(self, state, reward, done):
         self.total_reward += reward
@@ -146,6 +172,7 @@ class DDPGAgent(BaseAgent):
         if done:
             print(("TEST " if self.is_test else "train ") + "score: {:.2f} step: {}".format(self.total_reward, self.get_global_step()))
             self.rewards_log.write("{}\n".format(self.total_reward))
+            self.session.run(self.set_scores, {self.score_placeholder: self.total_reward})
             self._reset_episode()
             return None
 
@@ -207,3 +234,9 @@ class DDPGAgent(BaseAgent):
             self.session, snapshot_name, global_step=self._step)
         self.memory.save(save_path)
         print("saved model")
+
+def minimize_with_clipping(opt, loss, vars, norm=0.5, stop_gradients=None, step=None):
+    grads = tf.gradients(loss, vars, stop_gradients=stop_gradients)
+    grads, _ = tf.clip_by_global_norm(grads, norm)
+    grads_and_vars = list(zip(grads, vars))
+    return opt.apply_gradients(grads_and_vars, global_step=step)

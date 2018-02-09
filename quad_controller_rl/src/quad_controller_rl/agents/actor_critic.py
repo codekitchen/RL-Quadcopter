@@ -2,12 +2,14 @@ import tensorflow as tf
 
 # "penalized tanh" similar to https://arxiv.org/pdf/1602.05980.pdf
 def penalized_tanh(tensor):
-    return tf.nn.tanh(0.5 * tensor)
+    return 0.1 * tensor
+    # return tf.nn.tanh(0.5 * tensor)
     # th = tf.nn.tanh(tensor)
     # return tf.maximum(th, 0.25 * th)
 
 class ActorCritic:
-    def __init__(self, state_shape, action_shape):
+    def __init__(self, state_shape, action_shape, summarize=False):
+        self.summarize = summarize
         self.random_init = tf.random_uniform_initializer(-3e-5, 3e-5)
         self.is_training = tf.placeholder(tf.bool)
         self._build_actor(state_shape, action_shape)
@@ -21,9 +23,9 @@ class ActorCritic:
 
         with tf.variable_scope("actor"):
             layer = self.state_flat
-            layer = self._dense_norm(layer, 64, "dense1")
-            layer = self._dense_norm(layer, 128, "dense2")
-            layer = self._dense_norm(layer, 64, "dense3")
+            layer = tf.layers.batch_normalization(layer, training=self.is_training)
+            layer = self._dense_norm(layer, 400, "dense1")
+            layer = self._dense_norm(layer, 300, "dense2")
             layer = self._dense_norm(layer, action_shape, name="action",
                 kernel_initializer=self.random_init,
                 activation=penalized_tanh)
@@ -34,13 +36,9 @@ class ActorCritic:
         with tf.variable_scope("critic"):
             with tf.variable_scope("state"):
                 state_layer = self.state_flat
-                state_layer = self._dense_norm(state_layer, 128, name="dense1")
-                state_layer = self._dense_norm(state_layer, 64, name="dense2")
-            with tf.variable_scope("action"):
-                action_layer = self.action
-                action_layer = tf.layers.dense(action_layer, 128, activation=tf.nn.relu, name="dense1")
-                action_layer = tf.layers.dense(action_layer, 64, activation=tf.nn.relu, name="dense2")
-            layer = tf.layers.dense(state_layer + action_layer, 64, activation=tf.nn.relu, name="dense1")
+                state_layer = self._dense_norm(state_layer, 400, name="dense1")
+            action_layer = self.action
+            layer = tf.layers.dense(tf.concat([state_layer, action_layer], 1), 300, activation=tf.nn.relu, name="dense1")
 
             self.raw_value = tf.layers.dense(layer, 1, activation=None, kernel_initializer=self.random_init, name="value")
             self.value = self.raw_value[:, 0] # grab the first value for each input in the batch
@@ -50,3 +48,7 @@ class ActorCritic:
         layer = tf.layers.batch_normalization(layer, training=self.is_training)
         layer = activation(layer)
         return layer
+    
+    def _histogram(self, name, values):
+        if self.summarize:
+            tf.summary.histogram(name, values)
