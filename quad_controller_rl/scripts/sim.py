@@ -35,7 +35,10 @@ class Sim():
         force = np.array([cmd.force.x, cmd.force.y, cmd.force.z])
         force += np.array([0,0,self.gravity*self.mass])
         v = np.linalg.norm(self.velocity)
-        vhat = self.velocity/v
+        if v > 0:
+            vhat = self.velocity/v
+        else:
+            vhat = np.zeros(3)
         force -= vhat*np.square(v)*self.drag
         
         self.lin_acc = self.dt*(force/self.mass)
