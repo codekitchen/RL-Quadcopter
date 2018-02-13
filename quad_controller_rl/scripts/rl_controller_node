@@ -81,7 +81,7 @@ class RLControllerNode:
 
     def loop(self):
         if (self.goodsim):
-            while (self.episode <= self.num_episodes):
+            while (self.episode <= self.num_episodes) and not rospy.is_shutdown():
                 timestamp, pose, angular_velocity, linear_acceleration = self.sim.get_state()
                 cmd, done = self.task.update(timestamp, pose, angular_velocity, linear_acceleration)
                 if done:
