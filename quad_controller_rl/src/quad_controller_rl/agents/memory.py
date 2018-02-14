@@ -67,7 +67,7 @@ class Memory:
         indices = []
         while len(indices) < batch_size:
             n = random.randrange(count)
-            if n != self._last_insert:
+            if n != self._last_insert and n not in indices:
                 indices.append(n)
         indices = np.array(indices)
         samples = [col[indices] for col in self.storage]
