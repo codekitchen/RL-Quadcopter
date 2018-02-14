@@ -5,7 +5,7 @@
     <arg name="sim" default="$(find quad_controller_rl)/sim/DroneSim" doc="Full path/command to run simulator (must be an executable)" />
     <arg name="out" default="$(find quad_controller_rl)/out" doc="Path to output directory" />
     <arg name="agentname" default="" doc="Name your agent" />
-    <arg name="test" default="false" doc="Test mode, no learning" />
+    <arg name="test" default="false" doc="Test mode, no learning" />    <arg name="goodsim" default="yes" doc="Use the good python base simulator?" />
 
     <!-- Parameters; access in code, e.g. rospy.get_param('task') -->
     <param name="task" value="$(arg task)" />
@@ -13,6 +13,7 @@
     <param name="out" value="$(arg out)" />
     <param name="agentname" value="$(arg agentname)" />
     <param name="test" value="$(arg test)" />
+    <param name="goodsim" value="$(arg goodsim)" />
 
     <!-- ROS nodes (processes) to launch -->
     <node name="rl_controller" pkg="quad_controller_rl" type="rl_controller_node" output="screen" />

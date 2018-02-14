@@ -12,9 +12,9 @@ class Hover(BaseTask):
     def __init__(self):
         # State space: <position_x, .._y, .._z, orientation_x, .._y, .._z, .._w>
         cube_size = 300.0  # env is cube_size x cube_size x cube_size
-        space_min = np.array([0, - cube_size / 2, - cube_size / 2,       0.0, -1.0, -1.0, -1.0, -1.0])
-        space_max = np.array([500,  cube_size / 2,   cube_size / 2, cube_size, 1.0,  1.0,  1.0,  1.0])
-        self.state = TemporalState(space_min, space_max)
+        space_min = np.array([0,        0.0, -200])
+        space_max = np.array([500,   cube_size, 200])
+        self.state = TemporalState(space_min, space_max, frames=1)
         self.observation_space = self.state.observation_space
         #print("Takeoff(): observation_space = {}".format(self.observation_space))  # [debug]
 
@@ -31,6 +31,7 @@ class Hover(BaseTask):
         self.target_z = 10.0  # target height (z position) to hover at
         self.hovertime = 0
         self.last_timestamp = 0
+        self.last_pos = None
         self.z_oob = 40.0
         self.xy_oob = 80.0
         self.max_height = 0.0
@@ -39,9 +40,11 @@ class Hover(BaseTask):
         self.state.reset()
         self.hovertime = 0
         self.max_height = 0.0
+        self.target_z = np.random.rand() * 15 + 5
+        start_z = np.random.rand() * 25.0
         # Nothing to reset; just return initial condition
         return Pose(
-                position=Point(0.0, 0.0, np.random.normal(0.5, 0.1)),  # drop off from a slight random height
+                position=Point(0.0, 0.0, start_z),  # drop off from a slight random height
                 orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
             ), Twist(
                 linear=Vector3(0.0, 0.0, 0.0),
@@ -50,10 +53,16 @@ class Hover(BaseTask):
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
         # Prepare state vector (pose only; ignore angular_velocity, linear_acceleration)
+        if self.last_pos is None:
+            vel = 0.0
+        else:
+            vel = (pose.position.z - self.last_pos) / max(timestamp - self.last_timestamp, 1e-4)
+        self.last_pos = pose.position.z
         cur_state = np.array([
                 self.target_z,
-                pose.position.x, pose.position.y, pose.position.z,
-                pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w])
+                 pose.position.z,
+                 vel,
+                ])
         self.state.update(cur_state)
 
         # Compute reward / penalty and check if this episode is complete
@@ -90,7 +99,7 @@ class Hover(BaseTask):
         elif pose.position.z > self.z_oob or distance_from_origin > self.xy_oob:
             reward -= 1
             done = True
-        elif self.max_height < 0.6 and timestamp > 3.0:
+        elif pose.position.z < 0.2 and timestamp > 2.0:
             reward -= 1
             done = True
 

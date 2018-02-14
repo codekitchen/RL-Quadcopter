@@ -2,10 +2,10 @@ import numpy as np
 from gym import spaces
 
 class TemporalState:
-  def __init__(self, space_min, space_max):
+  def __init__(self, space_min, space_max, frames=3):
     self.observation_space = spaces.Box(
-        np.stack([space_min, space_min, space_min]),
-        np.stack([space_max, space_max, space_max]))
+        np.stack([space_min] * frames),
+        np.stack([space_max] * frames))
     self.reset()
   
   def reset(self):
