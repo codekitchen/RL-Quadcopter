@@ -50,8 +50,8 @@ class DDPGAgent(BaseAgent):
         # hyperparams
         self.gamma = 0.99
         self.tau = 0.001
-        self.actor_lr =  0.00001
-        self.critic_lr = 0.00001
+        self.actor_lr =  0.0001
+        self.critic_lr = 0.001
         self.batch_size = 64
         self.memory_size = 1000000
         self.steps_per_noise = 20
@@ -89,7 +89,7 @@ class DDPGAgent(BaseAgent):
             tf.summary.scalar('global_step', self._step)
             with tf.variable_scope("network"):
                 self.network = self._build_actor_critic(summarize=True)
-                tf.summary.histogram('action', self.network.raw_action)
+                # tf.summary.histogram('action', self.network.raw_action)
                 tf.summary.histogram('value', self.network.raw_value)
             with tf.variable_scope("target_network"):
                 self.target_network = self._build_actor_critic()
@@ -103,9 +103,9 @@ class DDPGAgent(BaseAgent):
                 tf.summary.scalar('diff', diff)
             with tf.variable_scope("training"):
                 # add the batch norm ops
-                update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope="network/")
                 with tf.variable_scope("critic"):
-                    self.critic_y = tf.placeholder(tf.float32, shape=[self.batch_size], name="y")
+                    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope="network/critic/")
+                    self.critic_y = tf.placeholder(tf.float32, shape=[self.batch_size, 1], name="y")
                     tf.summary.histogram('ys', self.critic_y)
                     regularization_losses = tf.get_collection(
                         tf.GraphKeys.REGULARIZATION_LOSSES, scope="network/critic/")
@@ -115,12 +115,14 @@ class DDPGAgent(BaseAgent):
                     critic_vars = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="network/critic/")
                     with tf.control_dependencies(update_ops):
                         opt = tf.train.AdamOptimizer(self.critic_lr)
-                        self.critic_train = minimize_with_clipping(opt, loss, critic_vars, step=self._step, stop_gradients=[self.network.state, self.network.action])
+                        self.critic_train = minimize_with_clipping(opt, loss, critic_vars, step=self._step, stop_gradients=[self.network.critic_state, self.network.critic_action])
                 with tf.variable_scope("actor"):
+                    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, scope="network/actor/")
                     # critic_grad = tf.gradients(self.network.value, self.network.action)[0]
                     actor_vars = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="network/actor/")
                     # grads = tf.gradients(self.network.action, actor_vars, grad_ys=-critic_grad)
-                    loss = -tf.reduce_mean(self.network.value)
+                    # loss = -tf.reduce_mean(self.network.value)
+                    loss = self.network.actor_loss
                     # loss = tf.reduce_mean(-critic_grad * self.network.action)
                     tf.summary.scalar('loss', loss)
                     with tf.control_dependencies(update_ops):
@@ -190,8 +192,8 @@ class DDPGAgent(BaseAgent):
             return None
 
         step = self.get_global_step()
-        actions, _values = self.session.run(
-            [self.network.action, self.network.value],
+        actions = self.session.run(
+            self.network.action,
             {self.network.state: [state], self.network.is_training: False},
         )
         base_action = actions[0]
@@ -223,23 +225,25 @@ class DDPGAgent(BaseAgent):
         tn = self.target_network
         pred_next_actions = self.session.run(tn.action, {tn.state: next_states, tn.is_training: False})
         pred_next_values = self.session.run(tn.value,
-            {tn.state: next_states, tn.action: pred_next_actions, tn.is_training: False})
+            {tn.critic_state: next_states, tn.critic_action: pred_next_actions, tn.is_training: False})
         ys = rewards + self.gamma * pred_next_values * (1 - dones)
+        ys = ys[:, None]
 
         step = self.get_global_step()
         if math.isnan(ys[0]):
             json.dump({'ys': ys.tolist(), 'rewards': rewards.tolist(), 'pred': pred_next_values.tolist(), 'next_states': next_states.tolist(), 'pred_next_actions': pred_next_actions.tolist(), 'step': step}, self.rewards_log)
             self.rewards_log.write("\n")
-        do_summary = (step % 20 == 0)
-        ops = [self.critic_train]
+        do_summary = False#(step % 20 == 0)
+        ops = [self.critic_train, self.network.critic_action_gradients]
         if do_summary:
             ops += [self.summary_data]
         res = self.session.run(ops,
-            {self.network.state: states, self.network.action: actions, self.critic_y: ys, self.network.is_training: True})
+            {self.network.critic_state: states, self.network.critic_action: actions, self.critic_y: ys, self.network.is_training: True})
         if do_summary:
             self.writer.add_summary(res[-1], step)
+        action_grads = res[1]
         self.session.run(self.actor_train,
-            {self.network.state: states, self.network.is_training: True})
+            {self.network.state: states, self.network.action_gradients: action_grads, self.network.is_training: True})
 
         self.session.run(self.update_target_network)
 

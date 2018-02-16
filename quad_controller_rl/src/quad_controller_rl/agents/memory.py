@@ -9,7 +9,8 @@ import numpy as np
 class Memory:
     """Circular memory buffer that is smart enough
     to return next_state without explicitly storing it"""
-    def __init__(self, size, state_shape, action_shape):
+    def __init__(self, size, state_shape, action_shape, random_seed):
+        random.seed(random_seed)
         self.size = size
         self._index = 0
         self._count = 0
@@ -17,8 +18,8 @@ class Memory:
         self.storage = [
             np.zeros((size,) + state_shape, dtype=np.float32),  # state
             np.zeros((size,) + action_shape, dtype=np.float32), # action
-            np.zeros((size,), dtype=np.float32), # reward
-            np.zeros((size,), dtype=np.float32), # done
+            np.zeros((size,1), dtype=np.float32), # reward
+            np.zeros((size,1), dtype=np.float32), # done
         ]
 
     @staticmethod
@@ -75,3 +76,13 @@ class Memory:
         next_indices = (indices + 1) % self.size
         samples.append(self.storage[0][next_indices])
         return samples
+
+if __name__ == "__main__":
+    m = Memory(10, (2,), (1,))
+    print(m.count())
+    m.remember([5, 1], [0.3], 0.1, False)
+    m.remember([5, 2], [0.3], 0.2, True)
+    m.remember([5, 3], [0.3], 0.3, False)
+    m.remember([5, 4], [0.3], 0.4, False)
+    print(m.storage)
+    print(m.sample(2))

@@ -3,13 +3,14 @@ import numpy as np
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, mu=None, theta=0.15, sigma=0.2, steps=1):
+    def __init__(self, size, mu=None, theta=0.15, sigma=0.3, dt=1e-2, steps=1):
         """Initialize parameters and noise process."""
         self.size = size
         self.mu = mu if mu is not None else np.zeros(self.size)
         self.theta = theta
         self.sigma = sigma
         self.state = np.ones(self.size) * self.mu
+        self.dt = dt
         self.steps = steps
         self.reset()
 
@@ -24,6 +25,6 @@ class OUNoise:
         if self.steps_left <= 0:
             self.steps_left = self.steps
             x = self.state
-            dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(len(x))
+            dx = self.theta * (self.mu - x) * self.dt + self.sigma * np.sqrt(self.dt) * np.random.randn(len(x))
             self.state = x + dx
         return self.state

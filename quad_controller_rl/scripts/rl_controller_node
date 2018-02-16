@@ -52,7 +52,6 @@ class RLControllerNode:
         
         # Choose Sim
         self.goodsim = (rospy.get_param('goodsim') == 'yes')
-        rospy.loginfo("RLControllerNode[{}]: Use good sim? {}".format(self.state, self.goodsim))  # [debug]
         self.sim = Sim()
 
         # Other variables
@@ -149,7 +148,6 @@ class RLControllerNode:
                 rospy.loginfo(shutdown_reason)  # [debug]
                 rospy.signal_shutdown("shutdown_reason")
                 return
-            rospy.loginfo("RLControllerNode[{}]: Episode {}".format(self.state, self.episode))  # [debug]
 
         self.state = 'EPISODE'
 

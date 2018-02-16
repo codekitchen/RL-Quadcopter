@@ -10,13 +10,12 @@ class Hover(BaseTask):
     """Simple task where the goal is to lift off the ground and reach a target height."""
 
     def __init__(self):
-        # State space: <position_x, .._y, .._z, orientation_x, .._y, .._z, .._w>
+        # State space: <position_x, .._y, .._z, orientation_x, .._y, .._z, .._w, target_z, velocity_z>
         cube_size = 300.0  # env is cube_size x cube_size x cube_size
-        space_min = np.array([0,        0.0, -200])
-        space_max = np.array([500,   cube_size, 200])
-        self.state = TemporalState(space_min, space_max, frames=1)
-        self.observation_space = self.state.observation_space
-        #print("Takeoff(): observation_space = {}".format(self.observation_space))  # [debug]
+        self.observation_space = spaces.Box(
+            np.array([- cube_size / 2, - cube_size / 2,
+                      0.0, -1.0, -1.0, -1.0, -1.0, 0.0, -200.0]),
+            np.array([cube_size / 2,   cube_size / 2, cube_size,  1.0,  1.0,  1.0,  1.0, 100.0, 200.0]))
 
         # Action space: <force_x, .._y, .._z, torque_x, .._y, .._z>
         max_force = 25.0
@@ -24,22 +23,15 @@ class Hover(BaseTask):
         self.action_space = spaces.Box(
             np.array([-max_force, -max_force, -max_force, -max_torque, -max_torque, -max_torque]),
             np.array([ max_force,  max_force,  max_force,  max_torque,  max_torque,  max_torque]))
-        #print("Takeoff(): action_space = {}".format(self.action_space))  # [debug]
 
         # Task-specific parameters
         self.max_duration = 30.0  # secs
         self.target_z = 10.0  # target height (z position) to hover at
-        self.hovertime = 0
         self.last_timestamp = 0
         self.last_pos = None
         self.z_oob = 40.0
-        self.xy_oob = 80.0
-        self.max_height = 0.0
 
     def reset(self):
-        self.state.reset()
-        self.hovertime = 0
-        self.max_height = 0.0
         self.target_z = np.random.rand() * 15 + 5
         start_z = np.random.rand() * 25.0
         # Nothing to reset; just return initial condition
@@ -58,54 +50,30 @@ class Hover(BaseTask):
         else:
             vel = (pose.position.z - self.last_pos) / max(timestamp - self.last_timestamp, 1e-4)
         self.last_pos = pose.position.z
-        cur_state = np.array([
-                self.target_z,
-                 pose.position.z,
-                 vel,
-                ])
-        self.state.update(cur_state)
+        state = np.array([
+                pose.position.x, pose.position.y, pose.position.z,
+                pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w,
+                self.target_z, vel])
 
         # Compute reward / penalty and check if this episode is complete
         done = False
-        self.max_height = max(self.max_height, pose.position.z)
         zdist = abs(self.target_z - pose.position.z)
-        # reward = 5 - min(zdist, 40.0)  # reward = zero for matching target z, -ve as you go farther, upto -40
-        # hovering = zdist < 0.7
-        # # punish for straying more than 5 units from orgin on the xy plane
-        distance_from_origin = np.sqrt(pose.position.x ** 2 + pose.position.y ** 2)
-        # reward -= min(distance_from_origin * 1.0, 40.0)
-        # if timestamp > self.max_duration:  # agent has run out of time
-        #     done = True
-        # elif pose.position.z > 20.0 or distance_from_origin > 30.0:
-        #     # punish and end the episode if it flies out of bounds
-        #     reward -= 10
-        #     done = True
-        # elif hovering:
-        #     reward += 2
-        #     self.hovertime += timestamp - self.last_timestamp
-        #     if self.hovertime > 10:
-        #         # we've successfully hovered
-        #         reward += 10
-        #         done = True
-        # else:
-        #     self.hovertime = 0
 
-        reward = (self.z_oob - zdist) / self.z_oob
-        reward += ((self.xy_oob - distance_from_origin) / self.xy_oob) / 2.0
-        if zdist < 1.5 and distance_from_origin < 5.0:
+        reward = 10.0 - zdist
+        if zdist < 1.5:
             reward += 1.0
         if timestamp > self.max_duration:
             done = True
-        elif pose.position.z > self.z_oob or distance_from_origin > self.xy_oob:
-            reward -= 1
+        elif pose.position.z > self.z_oob:
+            reward -= 50
             done = True
         elif pose.position.z < 0.2 and timestamp > 2.0:
-            reward -= 1
+            reward -= 50
             done = True
 
         # Take one RL step, passing in current state and reward, and obtain action
         # Note: The reward passed in here is the result of past action(s)
-        action = self.agent.step(self.state.state, reward, done)  # note: action = <force; torque> vector
+        action = self.agent.step(state, reward, done)  # note: action = <force; torque> vector
 
         self.last_timestamp = timestamp
 
