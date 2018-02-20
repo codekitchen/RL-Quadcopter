@@ -10,6 +10,7 @@ class Hover(BaseTask):
     """Simple task where the goal is to lift off the ground and reach a target height."""
 
     def __init__(self):
+        self.name = 'Hover'
         # State space: <position_x, .._y, .._z, orientation_x, .._y, .._z, .._w, target_z, velocity_z>
         cube_size = 300.0  # env is cube_size x cube_size x cube_size
         self.observation_space = spaces.Box(
@@ -29,9 +30,11 @@ class Hover(BaseTask):
         self.target_z = 10.0  # target height (z position) to hover at
         self.last_timestamp = 0
         self.last_pos = None
-        self.z_oob = 40.0
+        self.z_oob = 35.0
+        self.last_action = np.zeros_like(self.action_space.shape)
 
     def reset(self):
+        self.last_action = np.zeros_like(self.action_space.shape)
         self.target_z = np.random.rand() * 15 + 5
         start_z = np.random.rand() * 25.0
         # Nothing to reset; just return initial condition
@@ -44,6 +47,9 @@ class Hover(BaseTask):
             )
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
+        # if np.random.rand() > 0.99:
+        #     self.target_z = np.random.rand() * 15 + 5
+
         # Prepare state vector (pose only; ignore angular_velocity, linear_acceleration)
         if self.last_pos is None:
             vel = 0.0
@@ -59,16 +65,18 @@ class Hover(BaseTask):
         done = False
         zdist = abs(self.target_z - pose.position.z)
 
-        reward = 10.0 - zdist
-        if zdist < 1.5:
-            reward += 1.0
+        reward = -(zdist ** 2 + 0.01 * (np.sum(self.last_action) ** 2)) / 9000
+
+        # reward = 10.0 - zdist
+        if zdist < 0.5:
+            reward += 0.5
         if timestamp > self.max_duration:
             done = True
         elif pose.position.z > self.z_oob:
-            reward -= 50
+            reward -= 1.0
             done = True
-        elif pose.position.z < 0.2 and timestamp > 2.0:
-            reward -= 50
+        elif pose.position.z < 0.2:
+            reward -= 1.0
             done = True
 
         # Take one RL step, passing in current state and reward, and obtain action
@@ -76,6 +84,7 @@ class Hover(BaseTask):
         action = self.agent.step(state, reward, done)  # note: action = <force; torque> vector
 
         self.last_timestamp = timestamp
+        self.last_action = action
 
         # Convert to proper force command (a Wrench object) and return it
         if action is not None:

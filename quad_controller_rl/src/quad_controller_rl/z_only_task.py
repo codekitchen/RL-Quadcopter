@@ -5,7 +5,7 @@ class ZOnlyTask:
     """Wraps a task to constrain the state and action spaces to only linear-z"""
     def __init__(self, task):
         self.task = task
-        self.target_z = task.target_z
+        self.name = task.name
         o_s = self.task.observation_space
         a_s = self.task.action_space
 
@@ -13,7 +13,11 @@ class ZOnlyTask:
         print("modified observation space: {} {}".format(self.observation_space.low, self.observation_space.high))
         self.action_space = spaces.Box(a_s.low[2:3], a_s.high[2:3])
         print("modified action space: {} {}".format(self.action_space.low, self.action_space.high))
-    
+
+    @property
+    def target_z(self):
+        return self.task.target_z
+
     def filter_state(self, state):
         # return the z position, plus anything beyond the quaternion data (in my Hover task, this is the target z height and the velocity).
         return np.concatenate((state[2:3], state[7:]))

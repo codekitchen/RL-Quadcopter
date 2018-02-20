@@ -15,7 +15,7 @@ def relu6(x):
 class DDPGKeras(BaseAgent):
     """Reinforcement Learning agent that learns using DDPG."""
 
-    def __init__(self, task, random_seed = 1234):
+    def __init__(self, task, random_seed = 12345):
         self.task = task
         if hasattr(self.task, 'target_z'):
             self.task = ZOnlyTask(task)
