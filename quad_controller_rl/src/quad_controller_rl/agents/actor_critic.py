@@ -1,11 +1,7 @@
 import tensorflow as tf
 
-# "penalized tanh" similar to https://arxiv.org/pdf/1602.05980.pdf
-def penalized_tanh(tensor):
-    # return 0.1 * tensor
+def scaled_tanh(tensor):
     return tf.nn.tanh(tensor * 0.1)
-    # th = tf.nn.tanh(tensor)
-    # return tf.maximum(th, 0.25 * th)
 
 class ActorCritic:
     def __init__(self, state_size, action_size, summarize=False):
@@ -23,7 +19,7 @@ class ActorCritic:
             layer = self._dense(layer, 300, name="dense2")
             layer = self._dense(layer, action_size, name="action",
                 kernel_initializer=self.random_init,
-                activation=penalized_tanh)
+                activation=scaled_tanh)
             self.action = layer
             self.actor_gradients = tf.placeholder(tf.float32, shape=(None, action_size), name="actor_gradients")
 

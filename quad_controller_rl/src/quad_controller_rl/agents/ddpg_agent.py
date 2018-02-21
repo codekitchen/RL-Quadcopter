@@ -107,9 +107,6 @@ class DDPGAgent(BaseAgent):
                     self.critic_train = opt.minimize(loss, var_list=critic_vars)
                 with tf.variable_scope("actor"):
                     actor_vars = self.graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="network/actor/")
-                    # grads = tf.gradients(self.network.action, actor_vars, grad_ys=-critic_grad)
-                    # loss = -tf.reduce_mean(self.network.value)
-                    # loss = self.network.actor_loss
                     loss = tf.reduce_mean(-self.network.actor_gradients * self.network.action)
                     tf.summary.scalar('loss', loss)
                     opt = tf.train.AdamOptimizer(self.actor_lr)
@@ -180,8 +177,6 @@ class DDPGAgent(BaseAgent):
             action = np.clip(action + self.noise.sample(), -1.0, 1.0)
 
         dbg = "\r{} score: {:9.2f} ep: {:6d} step: {:5d} act: {:6.2f} {:6.2f} {:6.2f} avg_Q: {:5.2f}".format("TEST " if self.is_test else "train", self.total_reward, self.episode, self.ep_steps, base_action[0], action[0], self._scale_action(action)[0], (self.ep_q / self.ep_steps))
-        # if hasattr(self.task, 'target_z'):
-            # dbg += " tgt: {:5.2f}".format(self.task.target_z)
         stdout.write(dbg)
 
         self.last_state = state
