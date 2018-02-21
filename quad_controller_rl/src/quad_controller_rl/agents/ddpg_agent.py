@@ -43,7 +43,7 @@ class DDPGAgent(BaseAgent):
         # hyperparams
         self.gamma = 0.99
         self.tau = 0.001
-        self.actor_lr = 0.00001
+        self.actor_lr = 0.000001
         self.critic_lr = 0.001
         self.batch_size = 64
         self.memory_size = 1000000
@@ -180,8 +180,8 @@ class DDPGAgent(BaseAgent):
             action = np.clip(action + self.noise.sample(), -1.0, 1.0)
 
         dbg = "\r{} score: {:9.2f} ep: {:6d} step: {:5d} act: {:6.2f} {:6.2f} {:6.2f} avg_Q: {:5.2f}".format("TEST " if self.is_test else "train", self.total_reward, self.episode, self.ep_steps, base_action[0], action[0], self._scale_action(action)[0], (self.ep_q / self.ep_steps))
-        if hasattr(self.task, 'target_z'):
-            dbg += " tgt: {:5.2f}".format(self.task.target_z)
+        # if hasattr(self.task, 'target_z'):
+            # dbg += " tgt: {:5.2f}".format(self.task.target_z)
         stdout.write(dbg)
 
         self.last_state = state

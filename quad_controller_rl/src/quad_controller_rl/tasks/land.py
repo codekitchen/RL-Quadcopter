@@ -1,4 +1,6 @@
-"""Takeoff task."""
+"""Land task."""
+
+# pylint: disable=W0201
 
 import numpy as np
 from gym import spaces
@@ -6,11 +8,11 @@ from geometry_msgs.msg import Vector3, Point, Quaternion, Pose, Twist, Wrench
 from quad_controller_rl.tasks.base_task import BaseTask
 from quad_controller_rl.tasks.temporal_space import TemporalState
 
-class Hover(BaseTask):
-    """Hover around a given target height, randomly generated for each episode."""
+class Land(BaseTask):
+    """Land gently."""
 
     def __init__(self):
-        self.name = 'Hover'
+        self.name = 'Land'
         # State space: <position_x, .._y, .._z, orientation_x, .._y, .._z, .._w, target_z, velocity_z>
         cube_size = 300.0  # env is cube_size x cube_size x cube_size
         self.observation_space = spaces.Box(
@@ -26,19 +28,18 @@ class Hover(BaseTask):
             np.array([ max_force,  max_force,  max_force,  max_torque,  max_torque,  max_torque]))
 
         # Task-specific parameters
-        self.max_duration = 30.0  # secs
-        self.z_oob = 35.0
+        self.max_duration = 8.0  # secs
         self.reset()
 
     def reset(self):
-        self.last_timestamp = 0
+        self.last_timestamp = 0.0
         self.last_pos = None
+        self.last_vel = 0.0
+        self.target_z = 0.0
         self.last_action = np.zeros_like(self.action_space.shape)
-        self.target_z = np.random.rand() * 15 + 5
-        start_z = np.random.rand() * 25.0
-        # Nothing to reset; just return initial condition
+
         return Pose(
-                position=Point(0.0, 0.0, start_z),  # drop off from a slight random height
+                position=Point(0.0, 0.0, np.random.normal(12, 0.2)),
                 orientation=Quaternion(0.0, 0.0, 0.0, 0.0),
             ), Twist(
                 linear=Vector3(0.0, 0.0, 0.0),
@@ -46,15 +47,11 @@ class Hover(BaseTask):
             )
 
     def update(self, timestamp, pose, angular_velocity, linear_acceleration):
-        # if np.random.rand() > 0.99:
-        #     self.target_z = np.random.rand() * 15 + 5
-
         # Prepare state vector (pose only; ignore angular_velocity, linear_acceleration)
         if self.last_pos is None:
             vel = 0.0
         else:
             vel = (pose.position.z - self.last_pos) / max(timestamp - self.last_timestamp, 1e-4)
-        self.last_pos = pose.position.z
         state = np.array([
                 pose.position.x, pose.position.y, pose.position.z,
                 pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w,
@@ -62,20 +59,22 @@ class Hover(BaseTask):
 
         # Compute reward / penalty and check if this episode is complete
         done = False
-        zdist = abs(self.target_z - pose.position.z)
 
-        reward = -(zdist ** 2 + 0.01 * (np.sum(self.last_action) ** 2)) / 9000
+        reward = (15.0 - pose.position.z) / 15.0
+        if pose.position.z > 3.0 and np.abs(vel) > pose.position.z:
+            reward -= np.abs(vel) / 5.0
 
-        # reward = 10.0 - zdist
-        if zdist < 0.5:
-            reward += 0.5
         if timestamp > self.max_duration:
-            done = True
-        elif pose.position.z > self.z_oob:
             reward -= 1.0
             done = True
-        elif pose.position.z < 0.2:
-            reward -= 1.0
+        elif pose.position.z > 20.0:
+            reward -= 5.0
+            done = True
+        elif pose.position.z < 0.4 and vel > 0.6:
+            reward -= 5.5
+            done = True
+        elif pose.position.z < 0.2 and vel < 0.1:
+            reward += 1.0
             done = True
 
         # Take one RL step, passing in current state and reward, and obtain action
@@ -84,6 +83,8 @@ class Hover(BaseTask):
 
         self.last_timestamp = timestamp
         self.last_action = action
+        self.last_pos = pose.position.z
+        self.last_vel = vel
 
         # Convert to proper force command (a Wrench object) and return it
         if action is not None:
